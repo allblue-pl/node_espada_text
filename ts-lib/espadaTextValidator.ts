@@ -1,20 +1,43 @@
-'use strict';
+import fs from "node:fs";
+import path from "node:path";
 
-const
-    fs = require('fs'),
-    path = require('path'),
-
-    js0 = require('js0')
-;
-
-class espadaText_Class {
+class espadaTextValidator_Class {
     constructor() {
-        js0.args(arguments);
+        
     }
 
-    addInis(iniInfos, dirName, fsPath) {
-        js0.args(arguments, js0.RawObject, 'string', 'string');
+    check(langs: Array<string>, packagesFSPath: string, ignoreClassTexts: Array<string> = [], 
+            ignoreIniTexts: Array<string> = []): void {
+        let textInfos = {};
+        let iniInfos = {};
 
+        let namespaceInfos: NamespaceInfos = {};
+
+        let fileNames = fs.readdirSync(packagesFSPath);
+        for (let pkgName of fileNames) {
+            let pkgFSPath = path.join(packagesFSPath, pkgName);
+            let namespaceNames = fs.readdirSync(pkgFSPath);
+            for (let namespaceName of namespaceNames) {
+                let namespaceFSPath = path.join(pkgFSPath, namespaceName);
+                if (!fs.lstatSync(namespaceFSPath).isDirectory())
+                    continue;
+
+                namespaceInfos[namespaceName] = {
+                    fsPath: namespaceFSPath,
+                };
+
+                this.#checkNamespaceDir(langs, textInfos, iniInfos, pkgFSPath, 
+                        namespaceName);
+            }
+        }
+
+        this.#validateUnusedInis(langs, textInfos, iniInfos, ignoreIniTexts);
+        this.#validateMissingTexts(langs, textInfos, iniInfos, ignoreClassTexts,
+                namespaceInfos);
+    }
+
+
+    #addInis(iniInfos: IniInfos, dirName: string, fsPath: string): void {
         let fileArr = path.basename(fsPath).split('.');
         if (fileArr[fileArr.length - 1] !== 'ini')
             return;
@@ -24,36 +47,33 @@ class espadaText_Class {
         if (!(dirName in iniInfos))
             iniInfos[dirName] = {};
         if (!(prefix in iniInfos[dirName]))
-            iniInfos[dirName][prefix] = [];
+            iniInfos[dirName][prefix] = {};
 
-        let texts = this.parseIniFile(fsPath);
+        let texts = this.#parseIniFile(fsPath);
         for (let title in texts)
             iniInfos[dirName][prefix][title] = texts[title];
     }
 
-    addTexts(langs, textInfos, fsPath) {
-        js0.args(arguments, js0.ArrayItems('string'), js0.RawObject, 'string');
-
-        let string = `EC\\HText::_(
-                        'Sys:Errors_ActiveUserWithLoginAlreadyExists'`;
-
-        let re = new RegExp(`EC\\\\HText::\\_\\(.*?('|")(.*?)('|")`, 'gms');
+    #addTexts(langs: Array<string>, textInfos: TextInfos, fsPath: string): void {
+        let re = new RegExp(`HText::\\_\\(.*?('|")(.*?)('|")`, 'gms');
         let content = fs.readFileSync(fsPath).toString();
         // let content = `Test EC\\HText::_('Tescik'); EC\\HText::_('Inny Tescik');`;
         let matches = content.matchAll(re);
         for (let match of matches) {
             let textArr = match[2].split(':');
-            if (textArr.length !== 2)
+            if (textArr.length !== 2) {
                 console.error('Wrong Text Format', match[2], fsPath);
+                continue;
+            }
 
             let pkgName = textArr[0];
-            let text = textArr[1];
+            let text: string = textArr[1];
             let prefixArr = text.split('.');
 
             for (let lang of langs) {
                 let prefix = lang;
                 if (prefixArr.length > 1) {
-                    text = prefixArr.pop();
+                    text = prefixArr.pop()!;
                     prefix = prefix + '.' + prefixArr.join('.');
                 }
 
@@ -70,63 +90,25 @@ class espadaText_Class {
         }
     }
 
-    check(langs, packagesFSPath, ignoreClassTexts = [], ignoreIniTexts = []) {
-        js0.args(arguments, js0.ArrayItems('string'), 'string', 
-                [ js0.ArrayItems('string'), js0.Default ], 
-                [ js0.ArrayItems('string'), js0.Default ]);
-
-        let textInfos = {};
-        let iniInfos = {};
-
-        let fileNames = fs.readdirSync(packagesFSPath);
-        for (let fileName of fileNames) {
-            let packageFSPath = path.join(packagesFSPath, fileName);
-            if (fs.lstatSync(packageFSPath).isDirectory())
-                this.checkPackage(langs, textInfos, iniInfos, packageFSPath);
-        }
-
-        this.validateMissingTexts(langs, textInfos, iniInfos, ignoreClassTexts);
-        this.validateUnusedInis(langs, textInfos, iniInfos, ignoreIniTexts);
-    }
-
-    checkPackage(langs, textInfos, iniInfos, packageFSPath) {
-        js0.args(arguments, js0.ArrayItems('string'), js0.RawObject, 
-                js0.RawObject, 'string');
-
-        let packageName = path.basename(packageFSPath);
-        let dirNames = fs.readdirSync(packageFSPath);
-        for (let dirName of dirNames) {
-            let dirFSPath = path.join(packageFSPath, dirName);
-            if (!fs.lstatSync(dirFSPath).isDirectory())
-                continue;
-
-            this.checkPackageDir(langs, textInfos, iniInfos, packageFSPath, 
-                    dirName);
-        }
-    }
-
-    checkPackageDir(langs, textInfos, iniInfos, packageFSPath, dirName) {
-        js0.args(arguments, js0.ArrayItems('string'), js0.RawObject, 
-                js0.RawObject, 'string', 'string');
-
+    #checkNamespaceDir(langs: Array<string>, textInfos: TextInfos, iniInfos: IniInfos, 
+            packageFSPath: string, dirName: string): void {
         let packageName = path.basename(packageFSPath);
 
         /* Classes */
         let classesFSPath = path.join(packageFSPath, dirName, 'classes');
         if (fs.existsSync(classesFSPath)) {
             if (fs.lstatSync(classesFSPath).isDirectory()) {
-                this.checkPackageDirClasses(langs, textInfos, path.join(
+                this.#checkPackageDirClasses(langs, textInfos, path.join(
                         packageFSPath, dirName, 'classes'));
             }
         }
 
         /* Languages */
-        this.checkPackageDirInis(iniInfos, packageFSPath, dirName);
+        this.#checkPackageDirInis(iniInfos, packageFSPath, dirName);
     }
 
-    checkPackageDirClasses(langs, textInfos, classesFSPath) {
-        js0.args(arguments, js0.ArrayItems('string'), js0.RawObject, 'string');
-
+    #checkPackageDirClasses(langs: Array<string>, textInfos: TextInfos, 
+            classesFSPath: string): void {
         let dirFSPaths = [ classesFSPath ];
         while (dirFSPaths.length > 0) {
             let dirFSPath = dirFSPaths.splice(0, 1)[0];
@@ -142,15 +124,12 @@ class espadaText_Class {
                 if (!fileLStat.isFile())
                     continue;
 
-                this.addTexts(langs, textInfos, fileFSPath);
+                this.#addTexts(langs, textInfos, fileFSPath);
             }
         }
     }
 
-    checkPackageDirInis(iniInfos, packageFSPath, dirName) {
-        js0.args(arguments, js0.RawObject, 'string', 
-                'string');
-
+    #checkPackageDirInis(iniInfos: IniInfos, packageFSPath: string, dirName: string): void {
         let langsFSPath = path.join(packageFSPath, dirName, 'languages');
         if (!fs.existsSync(langsFSPath))
             return;
@@ -159,15 +138,13 @@ class espadaText_Class {
 
         let fileNames = fs.readdirSync(langsFSPath);
         for (let fileName of fileNames) {
-            this.addInis(iniInfos, dirName, path.join(langsFSPath, 
+            this.#addInis(iniInfos, dirName, path.join(langsFSPath, 
                     fileName));
         }
     }
 
-    parseIniFile(fsPath) {
-        js0.args(arguments, 'string');
-
-        let texts = {};
+    #parseIniFile(fsPath: string): {[title: string]: string} {
+        let texts: {[title: string]: string} = {};
 
         let content = fs.readFileSync(fsPath).toString();
         content = content.replaceAll(/\\''/gm, '&apos;');
@@ -176,6 +153,8 @@ class espadaText_Class {
             let titleMatch = content.match(/([a-zA-Z0-9_]+)( +)?=/m);
             if (titleMatch === null)
                 break;
+            if (titleMatch.index === undefined)
+                continue;
 
             let title = titleMatch[1];
             content = content.substring(titleMatch.index + titleMatch[0].length);
@@ -200,9 +179,9 @@ class espadaText_Class {
         return texts;
     }
 
-    validateMissingTexts(langs, textInfos, iniInfos, ignoreTexts) {
-        js0.args(arguments, js0.ArrayItems('string'), js0.RawObject, 
-                js0.RawObject, js0.ArrayItems('string'));
+    #validateMissingTexts(langs: Array<string>, textInfos: TextInfos, iniInfos: IniInfos, 
+            ignoreTexts: Array<string>, namespaceInfos: NamespaceInfos): void {
+        let missingTextsTemplates: {[iniFSPath: string]: string} = {};
 
         for (let dirName in textInfos) {
             if (!(dirName in iniInfos)) {
@@ -229,16 +208,30 @@ class espadaText_Class {
 
                     console.error(`Text '${fullText}'` +
                             ` does not exist in language files.`);
+
                     console.warn(`File: ${textInfo.fsPath}`);
+
+                    let iniFSPath = path.join(namespaceInfos[dirName].fsPath, "languages", `${prefix}.ini`);
+                    if (!(iniFSPath in missingTextsTemplates))
+                        missingTextsTemplates[iniFSPath] = "";
+                    missingTextsTemplates[iniFSPath] += `${textInfo.text} = \r\n`;
                 }
             }
         }
+
+        if (Object.keys( missingTextsTemplates).length > 0) {
+            console.info("\r\n MISSING TEXTS")
+            for (let iniFSPath in missingTextsTemplates) {
+                console.info("\r\n### " + iniFSPath + " ###\r\n");
+                console.info(missingTextsTemplates[iniFSPath]);
+            }
+        } else {
+            console.info("\r\nNo missing texts.");
+        }
     }
 
-    validateUnusedInis(langs, textInfos, iniInfos, ignoreTexts) {
-        js0.args(arguments, js0.ArrayItems('string'), js0.RawObject, 
-                js0.RawObject, js0.ArrayItems('string'));
-
+    #validateUnusedInis(langs: Array<string>, textInfos: TextInfos, iniInfos: IniInfos, 
+            ignoreTexts: Array<string>): void {
          for (let dirName in iniInfos) {
             if (!(dirName in textInfos)) {
                 console.error(`Package '${dirName}' languages not used in texts.`);
@@ -278,4 +271,27 @@ class espadaText_Class {
         }
     }
 }
-module.exports = new espadaText_Class();
+const espadaTextValidator = new espadaTextValidator_Class();
+export default espadaTextValidator;
+
+export type IniInfos = {
+    [dirName: string]: {
+        [prefix: string]: {
+            [title: string]: string,
+        },
+    }};
+
+export type NamespaceInfos = {
+    [pkgName: string]: {
+        fsPath: string,
+    },
+};
+
+export type TextInfos = {
+    [pkgName: string]: {
+        [prefix: string]: Array<{
+            fsPath: string,
+            text: string
+        }>
+    }
+};

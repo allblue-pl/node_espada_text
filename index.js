@@ -1,2 +1,3 @@
+import espadaTextValidator from "./lib/espadaTextValidator.js";
 
-module.exports = require('./lib');
+export default espadaTextValidator;
